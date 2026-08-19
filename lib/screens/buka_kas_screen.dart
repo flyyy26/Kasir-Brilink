@@ -643,16 +643,17 @@ class _BukaKasScreenState extends State<BukaKasScreen> {
       if (response.statusCode == 200 && data['status'] == true) {
         showSnackBar(data['message'] ?? "Sesi harian outlet berhasil dibuka!");
         
-        // ============ PERBAIKAN: Refresh data ============
+        // ============ UPDATE SHIFT SESSION ID ============
+        int sessionId = data['session_id'];
+        await _updateShiftSession(sessionId);
+        // ==================================================
+        
         await fetchCurrentSession();
         await fetchAllAccountsWithOpeningStatus();
         
-        // ============ PERBAIKAN: Auto save saldo dari account_balances ke opening_balances ============
-        // Setelah sesi dibuka, otomatis simpan semua account_balances ke opening_balances
         if (currentSessionId != null && listAccountsTable.isNotEmpty) {
           await autoSaveCurrentBalancesToOpening();
         }
-        // ================================================================
         
         bool isEmpty = await checkOpeningBalancesEmpty();
         if (isEmpty && currentSessionId != null) {
@@ -669,6 +670,62 @@ class _BukaKasScreenState extends State<BukaKasScreen> {
       showSnackBar("Terjadi kesalahan: $e");
     } finally {
       _safeSetState(() => isSubmittingSession = false);
+    }
+  }
+
+  Future<void> _updateShiftSession(int sessionId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      int karyawanId = prefs.getInt('karyawan_id') ?? 0;
+      
+      if (karyawanId == 0) return;
+      
+      final response = await http.post(
+        Uri.parse("$baseUrl/update_shift_session.php"),
+        headers: {"Content-Type": "application/json"},
+        body: json.encode({
+          "karyawan_id": karyawanId,
+          "outlet_id": myOutletId,
+          "session_id": sessionId,
+        }),
+      );
+      
+      final data = json.decode(response.body);
+      if (data['status'] == true) {
+        print("✅ Shift session updated: $sessionId");
+      } else {
+        print("⚠️ Gagal update shift session: ${data['message']}");
+      }
+    } catch (e) {
+      print("❌ Error updating shift session: $e");
+    }
+  }
+
+  Future<void> _refreshShiftStartWithSession(int sessionId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      int karyawanId = prefs.getInt('karyawan_id') ?? 0;
+      int outletId = prefs.getInt('outlet_id') ?? 1;
+      
+      if (karyawanId == 0) return;
+      
+      // Panggil API untuk update shift_logs dengan session_id
+      final response = await http.post(
+        Uri.parse("$baseUrl/update_shift_session.php"),
+        headers: {"Content-Type": "application/json"},
+        body: json.encode({
+          "karyawan_id": karyawanId,
+          "outlet_id": outletId,
+          "session_id": sessionId,
+        }),
+      );
+      
+      final data = json.decode(response.body);
+      if (data['status'] == true) {
+        print("Shift session updated: $sessionId");
+      }
+    } catch (e) {
+      print("Error updating shift session: $e");
     }
   }
 

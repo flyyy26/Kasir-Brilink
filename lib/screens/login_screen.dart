@@ -85,6 +85,22 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  // ============ CEK SHIFT SEBELUM LOGIN ============
+  Future<Map<String, dynamic>> _checkShiftStatus(int karyawanId, int outletId) async {
+    try {
+      final response = await http.get(
+        Uri.parse("$baseUrl/get_shift_start.php?karyawan_id=$karyawanId&outlet_id=$outletId"),
+      );
+      return json.decode(response.body);
+    } catch (e) {
+      return {
+        "status": false,
+        "message": "Gagal mengecek shift: $e"
+      };
+    }
+  }
+  // =================================================
+
   // 3. Fungsi untuk mengirim data Login (POST) ke server
   Future<void> login() async {
     if (selectedOutletId == null || selectedKaryawanId == null || passwordController.text.isEmpty) {
@@ -101,7 +117,7 @@ class _LoginScreenState extends State<LoginScreen> {
         Uri.parse("$baseUrl/login.php"),
         headers: {"Content-Type": "application/json"},
         body: json.encode({
-          "karyawan_id": int.parse(selectedKaryawanId!),
+          "karyawan_id": int.tryParse(selectedKaryawanId!) ?? 0,
           "password": passwordController.text,
         }),
       );
@@ -109,30 +125,139 @@ class _LoginScreenState extends State<LoginScreen> {
       final data = json.decode(response.body);
 
       if (response.statusCode == 200 && data['status'] == true) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool('is_login', true);
-        await prefs.setInt('karyawan_id', int.parse(data['user_data']['id'].toString()));
-        await prefs.setString('nama_karyawan', data['user_data']['nama_karyawan']);
-        await prefs.setInt('outlet_id', int.parse(data['user_data']['outlet_id'].toString()));
-
-        showSnackBar("Login Berhasil!");
+        int karyawanId = int.tryParse(data['user_data']['id'].toString()) ?? 0;
+        int outletId = int.tryParse(data['user_data']['outlet_id'].toString()) ?? 0;
         
-        if (!mounted) return;
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => const HomeScreen(),
-          ),
-        );
+        // ============ CEK SHIFT START ============
+        final shiftData = await _checkShiftStatus(karyawanId, outletId);
+        
+        if (shiftData['status'] == true) {
+          // ============ CEK APAKAH SHIFT CLOSED ============
+          bool isShiftClosed = shiftData['is_shift_closed'] == true || shiftData['is_shift_closed'] == 1 || shiftData['is_shift_closed'] == '1';
+          bool hasActiveShift = shiftData['has_active_shift'] == true || shiftData['has_active_shift'] == 1 || shiftData['has_active_shift'] == '1';
+          
+          // Jika shift sudah closed, TOLAK LOGIN
+          if (isShiftClosed && !hasActiveShift) {
+            setState(() {
+              isLoading = false;
+            });
+            
+            // Tampilkan dialog bahwa shift sudah closed
+            if (!mounted) return;
+            await showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (context) => AlertDialog(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                title: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.lock_clock_rounded, color: Colors.red, size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    const Text(
+                      "Shift Telah Berakhir",
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                    ),
+                  ],
+                ),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      "Shift karyawan ini sudah selesai (closed).",
+                      style: TextStyle(fontSize: 14),
+                    ),
+                    if (shiftData['shift_end'] != null) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade50,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: Colors.grey.shade200),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.schedule_rounded, color: Colors.grey.shade600, size: 14),
+                            const SizedBox(width: 6),
+                            Text(
+                              "Shift selesai: ${shiftData['shift_end']}",
+                              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                actions: [
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF00529C),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    ),
+                    onPressed: () {
+                      Navigator.pop(context);
+                    },
+                    child: const Text(
+                      "OK",
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+            );
+            return;
+          }
+          // =======================================================
+          
+          // Parsing nilai integer dengan aman agar tidak error String subtype
+          int shiftId = int.tryParse(shiftData['shift_id']?.toString() ?? '0') ?? 0;
+          int sessionId = int.tryParse(shiftData['session_id']?.toString() ?? '0') ?? 0;
+
+          // ============ SIMPAN DATA LOGIN & SHIFT ============
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setBool('is_login', true);
+          await prefs.setInt('karyawan_id', karyawanId);
+          await prefs.setString('nama_karyawan', data['user_data']['nama_karyawan']?.toString() ?? '');
+          await prefs.setInt('outlet_id', outletId);
+
+          await prefs.setString('shift_start', shiftData['shift_start']?.toString() ?? DateTime.now().toIso8601String());
+          await prefs.setInt('shift_id', shiftId);
+          await prefs.setInt('session_id', sessionId);
+          await prefs.setString('shift_status', hasActiveShift ? 'active' : 'inactive');
+
+          showSnackBar("Login Berhasil!");
+          
+          if (!mounted) return;
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const HomeScreen(),
+            ),
+          );
+        } else {
+          showSnackBar(shiftData['message'] ?? "Gagal memverifikasi shift");
+        }
       } else {
         showSnackBar(data['message'] ?? "Login gagal");
       }
     } catch (e) {
       showSnackBar("Terjadi kesalahan: $e");
     } finally {
-      setState(() {
-        isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
     }
   }
 

@@ -6,2176 +6,13 @@ import 'package:kasir_brilink/screens/login_screen.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
-// ============ IMPORT ALLLOGTRANSAKSI ============
-// Kita akan menggunakan kode yang sama persis dengan AllLogTransaksiScreen
-// ===============================================
-
-class TutupKasScreen extends StatefulWidget {
+class GantiShiftScreen extends StatefulWidget {
   final int sessionId;
 
-  const TutupKasScreen({super.key, required this.sessionId});
+  const GantiShiftScreen({super.key, required this.sessionId, required String karyawanName});
 
   @override
-  State<TutupKasScreen> createState() => _TutupKasScreenState();
-}
-
-// ============ LOG TRANSAKSI WIDGET (SAMA PERSIS DENGAN ALLLOGTRANSAKSI) ============
-class _LogTransaksiWidget extends StatefulWidget {
-  final int outletId;
-  final int sessionId;
-
-  const _LogTransaksiWidget({
-    required this.outletId,
-    required this.sessionId,
-  });
-
-  @override
-  State<_LogTransaksiWidget> createState() => _LogTransaksiWidgetState();
-}
-
-class _LogTransaksiWidgetState extends State<_LogTransaksiWidget> with TickerProviderStateMixin {
-  final String baseUrl = "https://barokahsport.com/brilink";
-
-  int myOutletId = 1;
-  int pusatOutletId = 1;
-  bool isPusatOutlet = false;
-  List<dynamic> transactions = [];
-  List<dynamic> filteredTransactions = [];
-  List<dynamic> karyawanList = [];
-  List<dynamic> outletList = [];
-  
-  List<dynamic> kmcList = [];
-  double kmcTotal = 0;
-
-  int? selectedKaryawanId;
-  DateTime? selectedDate;
-  String searchQuery = '';
-  
-  int? selectedOutletId;
-  bool showOutletSubTab = false;
-
-  late TabController _tabController;
-  late TabController _outletSubTabController;
-
-  bool isLoading = false;
-  bool isLoadingKaryawan = false;
-  bool isLoadingOutlets = false;
-
-  final Color primaryBlue = const Color(0xFF00529C);
-  final Color primaryOrange = const Color(0xFFF26A25);
-
-  final List<String> transactionCategories = [
-    'Semua',
-    'PPOB',
-    'QRIS Bayar',
-    'Tarik Tunai QRIS',
-    'Tarik Tunai EDC',
-    'Tarik Tunai M-Banking',
-    'Setoran Brilink',
-    'Pindah Kas',
-    'Penambahan Saldo',
-    'Prive',
-    'Pengeluaran Operasional Konveksi',
-    'Pengeluaran Operasional Brilink',
-    'Bayar Piutang',
-    'Bayar Hutang',
-    'POS',
-    'Tambah Kas Brangkas',
-    'KMC',
-  ];
-
-  final List<String> categoriesWithOutletSubTab = [
-    'Tarik Tunai M-Banking',
-    'Setoran Brilink',
-  ];
-
-  @override
-  void initState() {
-    super.initState();
-    myOutletId = widget.outletId;
-    _tabController = TabController(length: transactionCategories.length, vsync: this);
-    _outletSubTabController = TabController(length: 1, vsync: this);
-    _tabController.addListener(() {
-      if (_tabController.indexIsChanging) {
-        setState(() {
-          selectedOutletId = null;
-          _loadDataForTab(_tabController.index);
-        });
-        _updateOutletSubTabVisibility(_tabController.index);
-      }
-    });
-    loadData();
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    _outletSubTabController.dispose();
-    super.dispose();
-  }
-
-  Future<void> loadData() async {
-    setState(() {
-      selectedDate = DateTime.now();
-    });
-
-    await fetchPusatOutlet();
-    await fetchKaryawan();
-    await fetchOutlets();
-    await fetchAllTransactions();
-    await fetchKMCData();
-  }
-
-  Future<void> fetchPusatOutlet() async {
-    try {
-      final response = await http.get(
-        Uri.parse("$baseUrl/get_outlets.php"),
-      );
-      final data = json.decode(response.body);
-      
-      if (response.statusCode == 200 && data['status'] == true) {
-        List<dynamic> outlets = data['data'] ?? [];
-        if (outlets.isNotEmpty) {
-          outlets.sort((a, b) => (a['id'] as int).compareTo(b['id'] as int));
-          pusatOutletId = outlets.first['id'] as int;
-          isPusatOutlet = (myOutletId == pusatOutletId);
-        }
-      }
-    } catch (e) {
-      print("Gagal mengambil outlet pusat: $e");
-    }
-  }
-
-  Future<void> fetchKaryawan() async {
-    setState(() => isLoadingKaryawan = true);
-    try {
-      final response = await http.get(
-        Uri.parse("$baseUrl/get_karyawan.php?outlet_id=$myOutletId"),
-      );
-      final data = json.decode(response.body);
-
-      if (response.statusCode == 200 && data['status'] == true) {
-        setState(() {
-          karyawanList = data['data'] ?? [];
-        });
-      }
-    } catch (e) {
-      print("Gagal mengambil data karyawan: $e");
-    } finally {
-      setState(() => isLoadingKaryawan = false);
-    }
-  }
-
-  Future<void> fetchOutlets() async {
-    setState(() => isLoadingOutlets = true);
-    try {
-      final response = await http.get(
-        Uri.parse("$baseUrl/get_outlets.php"),
-      );
-      final data = json.decode(response.body);
-
-      if (response.statusCode == 200 && data['status'] == true) {
-        setState(() {
-          outletList = data['data'] ?? [];
-          selectedOutletId = null;
-        });
-        if (showOutletSubTab && outletList.isNotEmpty && isPusatOutlet) {
-          _reinitializeOutletSubTabController();
-        }
-      }
-    } catch (e) {
-      print("Gagal mengambil data outlet: $e");
-    } finally {
-      setState(() => isLoadingOutlets = false);
-    }
-  }
-
-  Future<void> fetchKMCData() async {
-    try {
-      String dateStr = DateFormat('yyyy-MM-dd').format(selectedDate ?? DateTime.now());
-      final response = await http.get(
-        Uri.parse("$baseUrl/get_fee_brilink_harian.php?outlet_id=$myOutletId&tanggal=$dateStr"),
-      );
-      final data = json.decode(response.body);
-
-      if (response.statusCode == 200 && data['status'] == true) {
-        List<dynamic> rawData = data['data'] ?? [];
-        
-        List<dynamic> formattedData = rawData.map((item) {
-          String accountName = item['account_name'] ?? 'BRI';
-          String subCategory = item['account_sub_category'] ?? '';
-          
-          String accountDisplay;
-          if (subCategory.isNotEmpty && subCategory != '-' && subCategory != 'NULL') {
-            accountDisplay = "$accountName ($subCategory)";
-          } else {
-            accountDisplay = accountName;
-          }
-          
-          if (accountName == 'BRI' && subCategory.isEmpty) {
-            accountDisplay = 'BRI (Penampung Outlet)';
-          }
-          
-          return {
-            'id': item['id'] ?? 0,
-            'nominal': double.tryParse(item['nominal']?.toString() ?? '0') ?? 0,
-            'keterangan': item['keterangan'] ?? '',
-            'nama_karyawan': item['nama_karyawan'] ?? '',
-            'created_at': item['created_at'] ?? '',
-            'destination_account_id': item['destination_account_id'],
-            'account_name': accountDisplay,
-            'account_display': accountDisplay,
-            'account_name_raw': accountName,
-            'account_sub_category': subCategory,
-          };
-        }).toList();
-        
-        setState(() {
-          kmcList = formattedData;
-          kmcTotal = double.tryParse(data['total_fee']?.toString() ?? '0') ?? 0;
-        });
-      }
-    } catch (e) {
-      print("Gagal mengambil KMC: $e");
-    }
-  }
-
-  Future<void> fetchAllTransactions() async {
-    setState(() => isLoading = true);
-    try {
-      final response = await http.get(
-        Uri.parse("$baseUrl/get_all_transactions.php?outlet_id=$myOutletId"),
-      );
-      final data = json.decode(response.body);
-
-      if (response.statusCode == 200 && data['status'] == true) {
-        setState(() {
-          transactions = data['data'] ?? [];
-          transactions = transactions.where((trx) {
-            return trx['session_id']?.toString() == widget.sessionId.toString();
-          }).toList();
-          applyFilters();
-        });
-      } else {
-        showSnackBar(data['message'] ?? "Gagal memuat transaksi");
-      }
-    } catch (e) {
-      showSnackBar("Error: $e");
-    } finally {
-      setState(() => isLoading = false);
-    }
-  }
-
-  void applyFilters() {
-    var filtered = List.from(transactions);
-
-    if (selectedKaryawanId != null && selectedKaryawanId! > 0) {
-      filtered = filtered.where((trx) {
-        int? karyawanId = trx['karyawan_id'] != null ? int.tryParse(trx['karyawan_id'].toString()) : null;
-        return karyawanId == selectedKaryawanId;
-      }).toList();
-    }
-
-    if (selectedDate != null) {
-      String dateStr = DateFormat('yyyy-MM-dd').format(selectedDate!);
-      filtered = filtered.where((trx) {
-        String trxDate = trx['trx_date']?.toString() ?? '';
-        
-        try {
-          if (trxDate.contains(' ')) {
-            String datePart = trxDate.split(' ')[0];
-            return datePart == dateStr;
-          } else {
-            return trxDate.startsWith(dateStr);
-          }
-        } catch (e) {
-          return trxDate.contains(dateStr);
-        }
-      }).toList();
-    }
-
-    if (searchQuery.isNotEmpty) {
-      String query = searchQuery.toLowerCase();
-      filtered = filtered.where((trx) {
-        String customerName = trx['customer_name']?.toString().toLowerCase() ?? '';
-        String description = trx['description']?.toString().toLowerCase() ?? '';
-        String type = trx['trx_type']?.toString().toLowerCase() ?? '';
-        String target = trx['ppob_target']?.toString().toLowerCase() ?? '';
-        return customerName.contains(query) ||
-            description.contains(query) ||
-            type.contains(query) ||
-            target.contains(query);
-      }).toList();
-    }
-
-    setState(() {
-      filteredTransactions = filtered;
-    });
-  }
-
-  void _loadDataForTab(int index) {
-    if (index == transactionCategories.length - 1) {
-      if (selectedDate == null) {
-        setState(() {
-          selectedDate = DateTime.now();
-        });
-      }
-      fetchKMCData();
-    }
-    _updateOutletSubTabVisibility(index);
-  }
-
-  void _reinitializeOutletSubTabController() {
-    final oldController = _outletSubTabController;
-
-    _outletSubTabController = TabController(
-      length: outletList.length + 1, vsync: this,
-    );
-    _outletSubTabController.addListener(_onOutletSubTabChanged);
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      oldController.dispose();
-    });
-  }
-
-  void _onOutletSubTabChanged() {
-    if (!mounted) return;
-    if (_outletSubTabController.indexIsChanging) {
-      setState(() {});
-    }
-  }
-
-  void _updateOutletSubTabVisibility(int index) {
-    String category = transactionCategories[index];
-    bool show = isPusatOutlet && categoriesWithOutletSubTab.contains(category);
-    
-    if (showOutletSubTab != show) {
-      setState(() {
-        showOutletSubTab = show;
-        if (show && outletList.isNotEmpty) {
-          _reinitializeOutletSubTabController();
-        }
-      });
-    }
-  }
-
-  List<dynamic> getFilteredByOutlet(List<dynamic> data, int? outletId) {
-    if (outletId == null) return data;
-    
-    return data.where((trx) {
-      int? sourceOutletId = trx['session_outlet_id'] != null 
-          ? int.tryParse(trx['session_outlet_id'].toString()) 
-          : null;
-      int? targetOutletId = trx['target_outlet_id'] != null 
-          ? int.tryParse(trx['target_outlet_id'].toString()) 
-          : null;
-      
-      return sourceOutletId == outletId || targetOutletId == outletId;
-    }).toList();
-  }
-
-  List<dynamic> getAllData() {
-    List<dynamic> allData = [];
-    
-    var nonKMCTransactions = filteredTransactions.where((trx) {
-      String customerName = trx['customer_name']?.toString()?.toLowerCase() ?? '';
-      String description = trx['description']?.toString()?.toLowerCase() ?? '';
-      String type = trx['trx_type']?.toString()?.toLowerCase() ?? '';
-      
-      if (customerName.contains('kmc') || 
-          customerName.contains('kredit merchant') ||
-          description.contains('kmc') || 
-          description.contains('kredit merchant') ||
-          type.contains('kredit merchant') || 
-          type == 'kredit_merchant') {
-        return false;
-      }
-      return true;
-    }).toList();
-    
-    allData.addAll(nonKMCTransactions);
-    
-    for (var kmc in kmcList) {
-      String accountDisplay = kmc['account_display'] ?? 'BRI (Penampung Outlet)';
-      
-      allData.add({
-        'id': kmc['id'] ?? 0,
-        'trx_type': 'Kredit Merchant (KMC)',
-        'trx_type_raw': 'kredit_merchant',
-        'customer_name': 'KMC - BRI',
-        'nominal_source': 0,
-        'nominal_destination': double.tryParse(kmc['nominal']?.toString() ?? '0') ?? 0,
-        'admin_fee': 0,
-        'description': kmc['keterangan'] ?? 'Kredit Merchant',
-        'karyawan_id': kmc['karyawan_id'],
-        'karyawan_name': kmc['nama_karyawan'] ?? '',
-        'source_account_name': 'Eksternal',
-        'destination_account_name': accountDisplay,
-        'created_at': kmc['created_at'] ?? '',
-        'trx_date': kmc['created_at'] ?? '',
-        'is_kredit_merchant': true,
-        'source_display': 'Eksternal (KMC)',
-        'destination_display': accountDisplay,
-        'nominal': double.tryParse(kmc['nominal']?.toString() ?? '0') ?? 0,
-        'session_outlet_id': myOutletId,
-        'is_from_fee_brilink': true,
-      });
-    }
-    
-    allData.sort((a, b) {
-      String dateA = a['trx_date']?.toString() ?? '';
-      String dateB = b['trx_date']?.toString() ?? '';
-      return dateB.compareTo(dateA);
-    });
-    
-    return allData;
-  }
-
-  List<dynamic> getFilteredByCategory(String category) {
-    if (category == 'Semua') {
-      return getAllData();
-    }
-    
-    if (category == 'KMC') {
-      return kmcList;
-    }
-
-    return filteredTransactions.where((trx) {
-      String type = trx['trx_type_raw']?.toString().toLowerCase() ?? '';
-      String description = trx['description']?.toString().toLowerCase() ?? '';
-      
-      bool isPOSQRIS = trx['is_pos_qris'] ?? false;
-
-      switch (category) {
-        case 'PPOB':
-          return type == 'ppob';          
-        case 'QRIS Bayar':
-          return type == 'qris' && !isPOSQRIS;
-        case 'Tarik Tunai EDC':
-          return type == 'tarik tunai edc';
-        case 'Tarik Tunai M-Banking':
-          return type == 'tarik tunai mbanking';
-        case 'Tarik Tunai QRIS':
-          return type == 'tarik tunai qris';
-        case 'Setoran Brilink':
-          return type == 'setoran brilink';
-        case 'Pindah Kas':
-          return type == 'pindah kas';
-        case 'Penambahan Saldo':
-          return type == 'pindah saldo';
-        case 'Prive':
-          return type == 'pengeluaran operasional' && (trx['pengeluaran_jenis'] ?? 'operasional') == 'beban_toko';
-        case 'Pengeluaran Operasional Konveksi':
-          return type == 'pengeluaran operasional konveksi';
-        case 'Pengeluaran Operasional Brilink':
-          return type == 'pengeluaran operasional brilink';
-        case 'Bayar Piutang':
-          return type == 'bayar piutang' || type == 'buat piutang';
-        case 'Bayar Hutang':
-          return type == 'bayar hutang' || type == 'buat hutang';
-        case 'Tambah Kas Brangkas':
-          return type == 'tambah kas brangkas';
-        case 'POS':
-          return (trx['is_pos'] ?? false) || isPOSQRIS;
-        default:
-          return true;
-      }
-    }).toList();
-  }
-
-  double getTotalAmount(String category) {
-    if (category == 'KMC') {
-      return kmcTotal;
-    }
-    
-    if (category == 'Semua') {
-      double total = 0;
-      var allData = getAllData();
-      for (var item in allData) {
-        double amount = 0;
-        if (item['is_kredit_merchant'] == true) {
-          amount = double.tryParse(item['nominal']?.toString() ?? '0') ?? 0;
-        } else {
-          String type = item['trx_type']?.toString() ?? '';
-          if (type.toLowerCase().contains('bayar hutang') || 
-              type.toLowerCase().contains('pengeluaran')) {
-            amount = double.tryParse(item['nominal_source']?.toString() ?? '0') ?? 0;
-          } else {
-            amount = double.tryParse(item['nominal_destination']?.toString() ?? '0') ?? 0;
-          }
-        }
-        total += amount;
-      }
-      return total;
-    }
-    
-    var filtered = getFilteredByCategory(category);
-    return filtered.fold(0.0, (sum, trx) {
-      String type = trx['trx_type']?.toString() ?? '';
-      double amount = 0;
-      
-      if (type.toLowerCase().contains('bayar hutang') || 
-          type.toLowerCase().contains('pengeluaran')) {
-        amount = double.tryParse(trx['nominal_source']?.toString() ?? '0') ?? 0;
-      } else {
-        amount = double.tryParse(trx['nominal_destination']?.toString() ?? '0') ?? 0;
-      }
-      return sum + amount;
-    });
-  }
-
-  double getTotalFee(String category) {
-    if (category == 'KMC' || category == 'Semua') return 0;
-    
-    var filtered = getFilteredByCategory(category);
-    return filtered.fold(0.0, (sum, trx) {
-      double fee = double.tryParse(trx['admin_fee']?.toString() ?? '0') ?? 0;
-      return sum + fee;
-    });
-  }
-
-  int getCategoryCount(String category) {
-    if (category == 'KMC') {
-      return kmcList.length;
-    }
-    if (category == 'Semua') {
-      return getAllData().length;
-    }
-    
-    var filtered = List<dynamic>.from(filteredTransactions);
-    
-    if (category == 'Bayar Piutang') {
-      return filtered.where((trx) {
-        String type = trx['trx_type_raw']?.toString().toLowerCase() ?? '';
-        return type == 'bayar piutang' || type == 'buat piutang';
-      }).length;
-    }
-    
-    if (category == 'Bayar Hutang') {
-      return filtered.where((trx) {
-        String type = trx['trx_type_raw']?.toString().toLowerCase() ?? '';
-        return type == 'bayar hutang' || type == 'buat hutang';
-      }).length;
-    }
-    
-    return getFilteredByCategory(category).length;
-  }
-
-  int getOutletCount(int? outletId, List<dynamic> data) {
-    if (outletId == null) return data.length;
-    return data.where((trx) {
-      int? sourceOutletId = trx['session_outlet_id'] != null 
-          ? int.tryParse(trx['session_outlet_id'].toString()) 
-          : null;
-      int? targetOutletId = trx['target_outlet_id'] != null 
-          ? int.tryParse(trx['target_outlet_id'].toString()) 
-          : null;
-      return sourceOutletId == outletId || targetOutletId == outletId;
-    }).length;
-  }
-
-  void showSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        margin: const EdgeInsets.all(16),
-        backgroundColor: primaryBlue,
-      ),
-    );
-  }
-
-  String nestedFormatIdr(double number) {
-    String str = number.toInt().toString();
-    RegExp reg = RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))');
-    return str.replaceAllMapped(reg, (Match match) => '${match[1]}.');
-  }
-
-  String _safeString(dynamic value) {
-    return value?.toString() ?? '';
-  }
-
-  int _safeInt(dynamic value) {
-    if (value == null) return 0;
-    if (value is int) return value;
-    if (value is String) return int.tryParse(value) ?? 0;
-    if (value is double) return value.toInt();
-    return 0;
-  }
-
-  double _safeDouble(dynamic value) {
-    if (value == null) return 0;
-    if (value is double) return value;
-    if (value is int) return value.toDouble();
-    if (value is String) return double.tryParse(value) ?? 0;
-    return 0;
-  }
-
-  Color _getTrxColor(String type) {
-    String t = type.toLowerCase().trim();
-    if (t.contains('qris')) return const Color(0xFF7B1FA2);
-    if (t.contains('edc')) return primaryBlue;
-    if (t.contains('mbanking')) return const Color(0xFF1A6FB0);
-    if (t.contains('setoran')) return const Color(0xFF2E7D32);
-    if (t.contains('ppob')) return primaryOrange;
-    if (t.contains('pindah kas')) return const Color(0xFFE65100);
-    if (t.contains('pindah saldo')) return const Color(0xFF00838F);
-    if (t.contains('buat piutang')) return const Color(0xFF1B5E20);
-    if (t.contains('buat hutang')) return const Color(0xFFB71C1C);
-    if (t.contains('pengeluaran operasional konveksi')) return const Color(0xFFB71C1C);
-    if (t.contains('pengeluaran operasional brilink')) return const Color(0xFFE65100);
-    if (t.contains('pengeluaran operasional') || t.contains('prive')) return const Color(0xFF6A1B9A);
-    if (t.contains('pengeluaran')) return const Color(0xFFD32F2F);
-    if (t.contains('bayar piutang') || t.contains('piutang')) return const Color(0xFF2E7D32);
-    if (t.contains('bayar hutang') || t.contains('hutang')) return const Color(0xFFD32F2F);
-    if (t.contains('pos')) return const Color(0xFF6C3483);
-    if (t.contains('tambah kas brangkas')) return Colors.amber.shade700;
-    if (t.contains('kredit merchant') || t.contains('kmc')) return const Color(0xFF00A86B);
-    return const Color(0xFF555555);
-  }
-
-  Widget _buildKMCCard(var item) {
-    double nominal = _safeDouble(item['nominal']);
-    String keterangan = _safeString(item['keterangan']);
-    String namaKaryawan = _safeString(item['nama_karyawan']);
-    String createdAt = _safeString(item['created_at']);
-    String accountDisplay = _safeString(item['account_display'] ?? item['account_name'] ?? 'BRI (Penampung Outlet)');
-    
-    String formattedDate = '';
-
-    try {
-      if (createdAt.isNotEmpty) {
-        DateTime dateTime = DateTime.parse(createdAt);
-        formattedDate = DateFormat('dd/MM/yyyy HH:mm').format(dateTime);
-      }
-    } catch (e) {
-      formattedDate = createdAt;
-    }
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.green.shade200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 4,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF00A86B),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Text(
-                            "KREDIT MERCHANT",
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF00A86B),
-                              letterSpacing: 0.3,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF00A86B).withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(4),
-                              border: Border.all(color: const Color(0xFF00A86B).withOpacity(0.2)),
-                            ),
-                            child: const Text(
-                              "KMC",
-                              style: TextStyle(
-                                fontSize: 8,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF00A86B),
-                              ),
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.blue.shade50,
-                              borderRadius: BorderRadius.circular(4),
-                              border: Border.all(color: Colors.blue.shade200),
-                            ),
-                            child: Text(
-                              accountDisplay,
-                              style: TextStyle(
-                                fontSize: 8,
-                                fontWeight: FontWeight.w500,
-                                color: Colors.blue.shade700,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (formattedDate.isNotEmpty)
-                        Text(
-                          formattedDate,
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.grey.shade500,
-                            fontWeight: FontWeight.w400,
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-              Text(
-                "+ Rp ${nestedFormatIdr(nominal)}",
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.green,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          if (keterangan.isNotEmpty)
-            Text(
-              keterangan,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: Colors.black87,
-              ),
-            ),
-          const SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              if (namaKaryawan.isNotEmpty)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: primaryBlue.withOpacity(0.06),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.person_outline, size: 12, color: Colors.grey.shade500),
-                      const SizedBox(width: 4),
-                      Text(
-                        namaKaryawan,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.green.shade50,
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: Colors.green.shade200),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.account_balance_rounded, size: 12, color: Colors.green.shade700),
-                    const SizedBox(width: 4),
-                    Text(
-                      "→ $accountDisplay",
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.green.shade700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTransactionCard(var trx) {
-    if (trx['is_kredit_merchant'] == true) {
-      return _buildKMCCardFromTransaction(trx);
-    }
-    
-    String type = _safeString(trx['trx_type']);
-    String typeRaw = _safeString(trx['trx_type_raw']);
-    String name = _safeString(trx['customer_name']);
-    String target = _safeString(trx['ppob_target']);
-    
-    double amount = 0;
-    String typeLower = type.toLowerCase();
-    String typeRawLower = typeRaw.toLowerCase();
-    
-    if (typeLower.contains('bayar hutang') || 
-        typeLower.contains('pengeluaran operasional') || 
-        typeLower.contains('pengeluaran')) {
-      amount = _safeDouble(trx['nominal_source']);
-    } else {
-      amount = _safeDouble(trx['nominal_destination']);
-    }
-
-    if (typeRawLower.contains('buat piutang')) {
-      amount = _safeDouble(trx['nominal_source']);
-    } else if (typeRawLower.contains('buat hutang')) {
-      amount = _safeDouble(trx['nominal_destination']);
-    } else if (typeLower.contains('bayar hutang') || 
-              typeLower.contains('pengeluaran operasional') || 
-              typeLower.contains('pengeluaran')) {
-      amount = _safeDouble(trx['nominal_source']);
-    } else {
-      amount = _safeDouble(trx['nominal_destination']);
-    }
-    
-    double feeTrx = _safeDouble(trx['admin_fee']);
-
-    String srcAccName = _safeString(trx['source_account_name']);
-    String destAccName = _safeString(trx['destination_account_name']);
-    String targetOutletName = _safeString(trx['target_outlet_name']);
-    String sourceOutletName = _safeString(trx['source_outlet_name']);
-    String karyawanName = _safeString(trx['karyawan_name']);
-    String trxDate = _safeString(trx['trx_date']);
-    String kategoriName = _safeString(trx['kategori_pengeluaran_name']);
-    
-    String subCategorySource = _safeString(trx['sub_category_source'] ?? '');
-    String subCategoryDest = _safeString(trx['sub_category_destination'] ?? '');
-    
-    String sourceDisplay = _safeString(trx['source_display']);
-    String destinationDisplay = _safeString(trx['destination_display']);
-    bool isPOS = trx['is_pos'] ?? false;
-    bool isPOSQRIS = trx['is_pos_qris'] ?? false;
-
-    bool hasDiskon = trx['has_diskon'] ?? false;
-    double diskonPersen = _safeDouble(trx['diskon_persen']);
-    double diskonNominal = _safeDouble(trx['diskon_nominal']);
-
-    List<dynamic> posItems = [];
-    if (trx['pos_items'] != null && trx['pos_items'] is List) {
-      posItems = trx['pos_items'];
-    }
-
-    int? checkTargetOutletId = trx['target_outlet_id'] != null ? _safeInt(trx['target_outlet_id']) : null;
-    bool isDanaMasukCabang = checkTargetOutletId == myOutletId;
-    
-    String displayType = type.toUpperCase();
-    if (typeRawLower.contains('buat piutang')) {
-      displayType = "BUAT PIUTANG";
-    } else if (typeRawLower.contains('buat hutang')) {
-      displayType = "BUAT HUTANG";
-    } else if (typeLower.contains('pengeluaran operasional konveksi')) {
-      displayType = "PENGELUARAN KONVEKSI";
-    } else if (typeLower.contains('pengeluaran operasional brilink')) {
-      displayType = "PENGELUARAN BRILINK";
-    } else if (typeLower.contains('pengeluaran operasional')) {
-      displayType = "PRIVE";
-    } else if (typeLower.contains('pengeluaran')) {
-      displayType = "PENGELUARAN";
-    } else if (typeLower.contains('bayar piutang') || typeLower.contains('piutang')) {
-      displayType = "BAYAR PIUTANG";
-    } else if (typeLower.contains('bayar hutang') || typeLower.contains('hutang')) {
-      displayType = "BAYAR HUTANG";
-    } else if (isPOS) {
-      displayType = "POS";
-      if (isPOSQRIS) displayType = "POS (QRIS)";
-    } else if (isDanaMasukCabang) {
-      displayType = "TERIMA ${type.replaceFirst("pindah ", "")}";
-    }
-
-    String formattedDate = '';
-    try {
-      if (trxDate.isNotEmpty) {
-        DateTime? dateTime;
-        try {
-          dateTime = DateTime.parse(trxDate);
-        } catch (e) {
-          try {
-            dateTime = DateFormat('yyyy-MM-dd HH:mm:ss').parse(trxDate);
-          } catch (e2) {
-            formattedDate = trxDate;
-          }
-        }
-        if (dateTime != null) {
-          formattedDate = DateFormat('dd/MM/yyyy HH:mm').format(dateTime);
-        }
-      }
-    } catch (e) {
-      formattedDate = trxDate;
-    }
-
-    String displayDescription = "";
-    if (name.isEmpty || name == '-') {
-      displayDescription = _safeString(trx['description']);
-      if (displayDescription.isEmpty) displayDescription = 'Pindahan Dana';
-    } else {
-      displayDescription = "Pelanggan: $name${target.isNotEmpty ? ' ($target)' : ''}";
-    }
-    
-    if (subCategorySource.isNotEmpty && subCategorySource != '-') {
-      sourceDisplay = '$sourceDisplay ($subCategorySource)';
-    }
-    if (subCategoryDest.isNotEmpty && subCategoryDest != '-') {
-      destinationDisplay = '$destinationDisplay ($subCategoryDest)';
-    }
-
-    String outletLabel = '';
-    int? sessionOutletId = trx['session_outlet_id'] != null ? _safeInt(trx['session_outlet_id']) : null;
-    if (sessionOutletId != null && sessionOutletId != myOutletId && isPusatOutlet) {
-      outletLabel = 'Dari Outlet Lain';
-    }
-
-    Color borderColor = Colors.grey.shade200;
-    if (typeLower.contains('pengeluaran operasional konveksi')) {
-      borderColor = const Color(0xFFB71C1C).withOpacity(0.3);
-    } else if (typeLower.contains('pengeluaran operasional brilink')) {
-      borderColor = const Color(0xFFE65100).withOpacity(0.3);
-    } else if (typeLower.contains('pengeluaran')) {
-      borderColor = Colors.red.shade200;
-    } else if (typeLower.contains('bayar piutang') || typeLower.contains('piutang')) {
-      borderColor = Colors.green.shade200;
-    } else if (typeLower.contains('bayar hutang') || typeLower.contains('hutang')) {
-      borderColor = Colors.red.shade200;
-    } else if (isPOS) {
-      borderColor = isPOSQRIS 
-          ? const Color(0xFF7B1FA2).withOpacity(0.3)
-          : const Color(0xFF6C3483).withOpacity(0.3);
-    }
-
-    if (typeLower.contains('tambah kas brangkas')) {
-        displayType = "TAMBAH KAS BRANGKAS";
-        srcAccName = "Brangkas";
-        destAccName = "Uang Kas (Laci)";
-    }
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: borderColor),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 4,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: _getTrxColor(type),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text(
-                            displayType.toUpperCase(),
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: _getTrxColor(type),
-                              letterSpacing: 0.3,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          if (isPOS && isPOSQRIS)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF7B1FA2).withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(color: const Color(0xFF7B1FA2).withOpacity(0.2)),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.qr_code_rounded, size: 10, color: const Color(0xFF7B1FA2)),
-                                  const SizedBox(width: 2),
-                                  Text(
-                                    "QRIS",
-                                    style: TextStyle(
-                                      fontSize: 8,
-                                      fontWeight: FontWeight.bold,
-                                      color: const Color(0xFF7B1FA2),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          if (isPOSQRIS)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF6C3483).withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(color: const Color(0xFF6C3483).withOpacity(0.2)),
-                              ),
-                              child: Text(
-                                "POS",
-                                style: TextStyle(
-                                  fontSize: 8,
-                                  fontWeight: FontWeight.bold,
-                                  color: const Color(0xFF6C3483),
-                                ),
-                              ),
-                            ),
-                          if (outletLabel.isNotEmpty)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.orange.shade50,
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(color: Colors.orange.shade200),
-                              ),
-                              child: Text(
-                                outletLabel,
-                                style: TextStyle(
-                                  fontSize: 7,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.orange.shade700,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                      if (formattedDate.isNotEmpty)
-                        Text(
-                          formattedDate,
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.grey.shade500,
-                            fontWeight: FontWeight.w400,
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-              Text(
-                "Rp ${nestedFormatIdr(amount)}",
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          
-          if (isPOS && posItems.isNotEmpty)
-          Container(
-            padding: const EdgeInsets.all(8),
-            margin: const EdgeInsets.only(bottom: 6),
-            decoration: BoxDecoration(
-              color: isPOSQRIS 
-                  ? const Color(0xFF7B1FA2).withOpacity(0.05)
-                  : const Color(0xFF6C3483).withOpacity(0.05),
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(
-                color: isPOSQRIS 
-                    ? const Color(0xFF7B1FA2).withOpacity(0.2)
-                    : const Color(0xFF6C3483).withOpacity(0.2),
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.shopping_bag_rounded, 
-                      size: 14, 
-                      color: isPOSQRIS ? const Color(0xFF7B1FA2) : const Color(0xFF6C3483),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      "Produk Terjual",
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: isPOSQRIS ? const Color(0xFF7B1FA2) : const Color(0xFF6C3483),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                ...posItems.map((item) {
-                  int qty = _safeInt(item['quantity']);
-                  double harga = _safeDouble(item['harga']);
-                  
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            "${qty}x ${_safeString(item['nama_produk'])}",
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.grey.shade700,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        Text(
-                          "Rp ${nestedFormatIdr(harga)}",
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                            color: primaryOrange,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }).toList(),
-              ],
-            ),
-          ),
-          
-          if (isPOS && hasDiskon && diskonPersen > 0) ...[
-            Container(
-              padding: const EdgeInsets.all(8),
-              margin: const EdgeInsets.only(bottom: 6),
-              decoration: BoxDecoration(
-                color: Colors.green.shade50,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: Colors.green.shade200),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.discount_rounded, size: 14, color: Colors.green.shade700),
-                      const SizedBox(width: 6),
-                      Text(
-                        "Diskon ${diskonPersen.toStringAsFixed(0)}%",
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.green.shade700,
-                        ),
-                      ),
-                    ],
-                  ),
-                  Text(
-                    "- Rp ${nestedFormatIdr(diskonNominal)}",
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.green.shade700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-          
-          if (kategoriName.isNotEmpty && typeLower.contains('pengeluaran'))
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              margin: const EdgeInsets.only(bottom: 6),
-              decoration: BoxDecoration(
-                color: Colors.red.shade50,
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: Colors.red.shade200),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.label_rounded, size: 12, color: Colors.red.shade700),
-                  const SizedBox(width: 4),
-                  Text(
-                    kategoriName,
-                    style: TextStyle(fontSize: 11, color: Colors.red.shade700, fontWeight: FontWeight.w500),
-                  ),
-                ],
-              ),
-            ),
-          
-          Text(
-            displayDescription,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: Colors.black87,
-            ),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 10),
-
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.grey.shade50,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.grey.shade100),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  isDanaMasukCabang ? Icons.download_rounded : Icons.login_rounded, 
-                  size: 16, 
-                  color: Colors.grey.shade500
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    sourceDisplay.isNotEmpty ? sourceDisplay : (srcAccName.isEmpty ? "Eksternal" : srcAccName),
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade600,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                Icon(Icons.arrow_forward, size: 14, color: Colors.grey.shade400),
-                const SizedBox(width: 8),
-                Icon(
-                  isDanaMasukCabang ? Icons.account_balance_wallet_rounded : Icons.logout_rounded, 
-                  size: 16, 
-                  color: _getTrxColor(type)
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    destinationDisplay.isNotEmpty ? destinationDisplay : (destAccName.isEmpty ? "Eksternal" : destAccName),
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade700,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 10),
-          
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              if (karyawanName.isNotEmpty)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: primaryBlue.withOpacity(0.06),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.person_outline, size: 12, color: Colors.grey.shade500),
-                      const SizedBox(width: 4),
-                      Text(
-                        karyawanName,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              if (feeTrx > 0 && !isDanaMasukCabang)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.green.shade50,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: Colors.green.shade200),
-                  ),
-                  child: Text(
-                    "+ Fee: Rp ${nestedFormatIdr(feeTrx)}",
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.green.shade700,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildKMCCardFromTransaction(var item) {
-    double nominal = _safeDouble(item['nominal']);
-    String keterangan = _safeString(item['description']);
-    String namaKaryawan = _safeString(item['karyawan_name']);
-    String createdAt = _safeString(item['created_at']);
-    String accountDisplay = _safeString(item['destination_display'] ?? 'BRI (Penampung Outlet)');
-    String formattedDate = '';
-
-    try {
-      if (createdAt.isNotEmpty) {
-        DateTime dateTime = DateTime.parse(createdAt);
-        formattedDate = DateFormat('dd/MM/yyyy HH:mm').format(dateTime);
-      }
-    } catch (e) {
-      formattedDate = createdAt;
-    }
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.green.shade200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 4,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF00A86B),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Text(
-                            "KREDIT MERCHANT",
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF00A86B),
-                              letterSpacing: 0.3,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF00A86B).withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(4),
-                              border: Border.all(color: const Color(0xFF00A86B).withOpacity(0.2)),
-                            ),
-                            child: const Text(
-                              "KMC",
-                              style: TextStyle(
-                                fontSize: 8,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF00A86B),
-                              ),
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.blue.shade50,
-                              borderRadius: BorderRadius.circular(4),
-                              border: Border.all(color: Colors.blue.shade200),
-                            ),
-                            child: Text(
-                              accountDisplay,
-                              style: TextStyle(
-                                fontSize: 8,
-                                fontWeight: FontWeight.w500,
-                                color: Colors.blue.shade700,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (formattedDate.isNotEmpty)
-                        Text(
-                          formattedDate,
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.grey.shade500,
-                            fontWeight: FontWeight.w400,
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-              Text(
-                "+ Rp ${nestedFormatIdr(nominal)}",
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.green,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          if (keterangan.isNotEmpty)
-            Text(
-              keterangan,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: Colors.black87,
-              ),
-            ),
-          const SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              if (namaKaryawan.isNotEmpty)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: primaryBlue.withOpacity(0.06),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.person_outline, size: 12, color: Colors.grey.shade500),
-                      const SizedBox(width: 4),
-                      Text(
-                        namaKaryawan,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.green.shade50,
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: Colors.green.shade200),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.account_balance_rounded, size: 12, color: Colors.green.shade700),
-                    const SizedBox(width: 4),
-                    Text(
-                      "→ $accountDisplay",
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.green.shade700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildContentWithOutletSubTab(String category) {
-    var filtered = getFilteredByCategory(category);
-    
-    List<Map<String, dynamic>> outletTabs = [];
-    outletTabs.add({
-      'id': null,
-      'name': 'Semua Outlet',
-    });
-    for (var outlet in outletList) {
-      outletTabs.add({
-        'id': _safeInt(outlet['id']),
-        'name': _safeString(outlet['nama_outlet']),
-      });
-    }
-    
-    List<dynamic> dataForOutlet = getFilteredByOutlet(filtered, selectedOutletId);
-    
-    Color summaryColor = primaryBlue;
-    if (category == 'Prive') {
-      summaryColor = const Color(0xFF6A1B9A);
-    } else if (category == 'Pengeluaran Operasional Konveksi') {
-      summaryColor = const Color(0xFFB71C1C);
-    } else if (category == 'Pengeluaran Operasional Brilink') {
-      summaryColor = const Color(0xFFE65100);
-    } else if (category == 'Bayar Piutang') {
-      summaryColor = const Color(0xFF2E7D32);
-    } else if (category == 'Bayar Hutang') {
-      summaryColor = const Color(0xFFD32F2F);
-    } else if (category == 'POS') {
-      summaryColor = const Color(0xFF6C3483);
-    } else if (category == 'QRIS') {
-      summaryColor = const Color(0xFF7B1FA2);
-    } else if (category == 'Tarik Tunai M-Banking') {
-      summaryColor = const Color(0xFF1A6FB0);
-    } else if (category == 'Setoran Brilink') {
-      summaryColor = const Color(0xFF2E7D32);
-    }
-
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: summaryColor.withOpacity(0.05),
-            borderRadius: BorderRadius.circular(6),
-            border: category == 'Prive' || 
-                    category == 'Pengeluaran Operasional Konveksi' ||
-                    category == 'Pengeluaran Operasional Brilink' ||
-                    category == 'Bayar Piutang' || 
-                    category == 'POS' ||
-                    category == 'QRIS'
-                ? Border.all(color: summaryColor.withOpacity(0.3))
-                : null,
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                "${dataForOutlet.length} Transaksi",
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.grey.shade600,
-                ),
-              ),
-              Row(
-                children: [
-                  Text(
-                    "Total: Rp ${nestedFormatIdr(getTotalAmountForData(dataForOutlet))}",
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: summaryColor,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-
-        if (showOutletSubTab && outletList.isNotEmpty && isPusatOutlet)
-          Container(
-            height: 38,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade100,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: TabBar(
-              controller: _outletSubTabController,
-              isScrollable: true,
-              indicator: BoxDecoration(
-                color: primaryBlue,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              indicatorSize: TabBarIndicatorSize.tab,
-              labelColor: Colors.white,
-              unselectedLabelColor: Colors.grey.shade700,
-              labelStyle: const TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 11,
-              ),
-              unselectedLabelStyle: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w400,
-              ),
-              labelPadding: const EdgeInsets.symmetric(horizontal: 8),
-              padding: const EdgeInsets.all(2),
-              tabs: outletTabs.map((outlet) {
-                int count = getOutletCount(outlet['id'], filtered);
-                return Tab(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(outlet['name']),
-                        if (count > 0) ...[
-                          const SizedBox(width: 4),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              count.toString(),
-                              style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                );
-              }).toList(),
-              onTap: (index) {
-                setState(() {
-                  selectedOutletId = outletTabs[index]['id'];
-                  if (_outletSubTabController.index != index) {
-                    _outletSubTabController.animateTo(index);
-                  }
-                });
-              },
-            ),
-          ),
-        const SizedBox(height: 8),
-
-        Expanded(
-          child: dataForOutlet.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.receipt_long_rounded,
-                        size: 48,
-                        color: Colors.grey.shade300,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        "Tidak ada transaksi",
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.grey.shade500,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        "Belum ada transaksi untuk kategori ini",
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade400,
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  itemCount: dataForOutlet.length,
-                  itemBuilder: (context, index) {
-                    var trx = dataForOutlet[index];
-                    return _buildTransactionCard(trx);
-                  },
-                ),
-        ),
-      ],
-    );
-  }
-
-  double getTotalAmountForData(List<dynamic> data) {
-    double total = 0;
-    for (var item in data) {
-      if (item['is_kredit_merchant'] == true) {
-        total += _safeDouble(item['nominal']);
-      } else {
-        String type = _safeString(item['trx_type']);
-        if (type.toLowerCase().contains('bayar hutang') || 
-            type.toLowerCase().contains('pengeluaran')) {
-          total += _safeDouble(item['nominal_source']);
-        } else {
-          total += _safeDouble(item['nominal_destination']);
-        }
-      }
-    }
-    return total;
-  }
-
-  Widget _buildKMCContent() {
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: const Color(0xFF00A86B).withOpacity(0.05),
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: const Color(0xFF00A86B).withOpacity(0.3)),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                "${kmcList.length} KMC",
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.grey.shade600,
-                ),
-              ),
-              Row(
-                children: [
-                  Text(
-                    "Total: Rp ${nestedFormatIdr(kmcTotal)}",
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF00A86B),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-
-        Expanded(
-          child: kmcList.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.attach_money_rounded,
-                        size: 48,
-                        color: Colors.grey.shade300,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        "Belum ada Kredit Merchant",
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.grey.shade500,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        "KMC akan muncul di sini setelah diinput",
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade400,
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  itemCount: kmcList.length,
-                  itemBuilder: (context, index) {
-                    var item = kmcList[index];
-                    return _buildKMCCard(item);
-                  },
-                ),
-        ),
-      ],
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 12,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: primaryBlue.withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(
-                  Icons.manage_search_rounded,
-                  color: primaryBlue,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    "Live Audit Log Transaksi",
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                      color: Color(0xFF00529C),
-                    ),
-                  ),
-                  Text(
-                    "${transactions.length} Total Transaksi",
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade500,
-                    ),
-                  ),
-                ],
-              ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: primaryOrange.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  "Rp ${nestedFormatIdr(getTotalAmount('Semua'))}",
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: primaryOrange,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.grey.shade50,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.grey.shade200),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.person_outline, color: primaryBlue, size: 20),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: DropdownButtonFormField<int>(
-                    value: selectedKaryawanId,
-                    isExpanded: true,
-                    decoration: InputDecoration(
-                      hintText: "Pilih Karyawan",
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.zero,
-                      isDense: true,
-                      hintStyle: TextStyle(
-                        color: Colors.grey.shade500,
-                        fontSize: 13,
-                      ),
-                    ),
-                    style: TextStyle(
-                      color: Colors.black87,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    items: [
-                      DropdownMenuItem<int>(
-                        value: null,
-                        child: Row(
-                          children: [
-                            const SizedBox(width: 8),
-                            const Text(
-                              "Semua Karyawan",
-                              style: TextStyle(fontWeight: FontWeight.w500),
-                            ),
-                          ],
-                        ),
-                      ),
-                      ...karyawanList.map((karyawan) {
-                        return DropdownMenuItem<int>(
-                          value: int.parse(karyawan['id'].toString()),
-                          child: Row(
-                            children: [
-                              Icon(Icons.person, size: 16, color: primaryBlue),
-                              const SizedBox(width: 8),
-                              Text(karyawan['nama_karyawan'] ?? 'Tanpa Nama'),
-                            ],
-                          ),
-                        );
-                      }).toList(),
-                    ],
-                    onChanged: (newValue) {
-                      setState(() {
-                        selectedKaryawanId = newValue;
-                        applyFilters();
-                      });
-                    },
-                  ),
-                ),
-                if (selectedKaryawanId != null)
-                  IconButton(
-                    icon: Icon(Icons.close, size: 16, color: Colors.grey.shade500),
-                    onPressed: () {
-                      setState(() {
-                        selectedKaryawanId = null;
-                        applyFilters();
-                      });
-                    },
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
-
-          Container(
-            height: 42,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade100,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: TabBar(
-              controller: _tabController,
-              isScrollable: true,
-              indicator: BoxDecoration(
-                color: primaryBlue,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              indicatorSize: TabBarIndicatorSize.tab,
-              labelColor: Colors.white,
-              unselectedLabelColor: Colors.grey.shade700,
-              labelStyle: const TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 11,
-              ),
-              unselectedLabelStyle: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w400,
-              ),
-              labelPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              padding: const EdgeInsets.all(2),
-              tabs: transactionCategories.map((category) {
-                int count = getCategoryCount(category);
-                
-                return Tab(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(category, style: const TextStyle(fontSize: 10)),
-                        if (count > 0) ...[
-                          const SizedBox(width: 3),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              count.toString(),
-                              style: const TextStyle(
-                                fontSize: 8,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-          const SizedBox(height: 8),
-
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: transactionCategories.map((category) {
-                if (category == 'KMC') {
-                  return _buildKMCContent();
-                }
-                
-                if (isPusatOutlet && categoriesWithOutletSubTab.contains(category)) {
-                  return _buildContentWithOutletSubTab(category);
-                }
-                
-                var filtered = getFilteredByCategory(category);
-                
-                Color summaryColor = primaryBlue;
-                if (category == 'Pengeluaran Operasional') {
-                  summaryColor = const Color(0xFFD32F2F);
-                } else if (category == 'Bayar Piutang') {
-                  summaryColor = const Color(0xFF2E7D32);
-                } else if (category == 'POS') {
-                  summaryColor = const Color(0xFF6C3483);
-                } else if (category == 'QRIS') {
-                  summaryColor = const Color(0xFF7B1FA2);
-                }
-                
-                return Column(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: summaryColor.withOpacity(0.05),
-                        borderRadius: BorderRadius.circular(6),
-                        border: category == 'Pengeluaran Operasional' || 
-                                category == 'Bayar Piutang' || 
-                                category == 'POS' ||
-                                category == 'QRIS'
-                            ? Border.all(color: summaryColor.withOpacity(0.3))
-                            : null,
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            "${filtered.length} Transaksi",
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                              color: Colors.grey.shade600,
-                            ),
-                          ),
-                          Row(
-                            children: [
-                              Text(
-                                "Total: Rp ${nestedFormatIdr(getTotalAmount(category))}",
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: summaryColor,
-                                ),
-                              ),
-                              if (getTotalFee(category) > 0) ...[
-                                const SizedBox(width: 12),
-                                Text(
-                                  "+ Fee: Rp ${nestedFormatIdr(getTotalFee(category))}",
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.green.shade700,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-
-                    Expanded(
-                      child: filtered.isEmpty
-                          ? Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.receipt_long_rounded,
-                                    size: 48,
-                                    color: Colors.grey.shade300,
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    "Tidak ada transaksi",
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w500,
-                                      color: Colors.grey.shade500,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    "Belum ada transaksi untuk kategori ini",
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade400,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            )
-                          : ListView.builder(
-                              padding: const EdgeInsets.symmetric(vertical: 6),
-                              itemCount: filtered.length,
-                              itemBuilder: (context, index) {
-                                var trx = filtered[index];
-                                return _buildTransactionCard(trx);
-                              },
-                            ),
-                    ),
-                  ],
-                );
-              }).toList(),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  State<GantiShiftScreen> createState() => _GantiShiftScreenState();
 }
 
 // ============ MUTASI REKENING WIDGET ============
@@ -2194,9 +31,8 @@ class _MutasiRekeningWidget extends StatefulWidget {
   State<_MutasiRekeningWidget> createState() => _MutasiRekeningWidgetState();
 }
 
-class _MutasiRekeningWidgetState extends State<_MutasiRekeningWidget> with AutomaticKeepAliveClientMixin {
-  @override
-  bool get wantKeepAlive => true;
+class _MutasiRekeningWidgetState extends State<_MutasiRekeningWidget> {
+  // HAPUS AutomaticKeepAliveClientMixin
 
   final Color primaryBlue = const Color(0xFF00529C);
   final Color primaryOrange = const Color(0xFFF26A25);
@@ -2218,23 +54,38 @@ class _MutasiRekeningWidgetState extends State<_MutasiRekeningWidget> with Autom
   bool useCustomRange = false;
   int selectedKaryawanId = 0;
   int selectedAccountId = 0;
+
+  bool _isMounted = false;
   
   Set<int> expandedAccounts = {};
 
   @override
   void initState() {
     super.initState();
-    fetchKaryawan();
-    fetchMutasiRekening();
+    _isMounted = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_isMounted) {
+        fetchKaryawan();
+        fetchMutasiRekening();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _isMounted = false;
+    super.dispose();
   }
 
   Future<void> fetchKaryawan() async {
+    if (!_isMounted || !mounted) return;
     try {
       final response = await http.get(
         Uri.parse("${widget.baseUrl}/get_karyawan.php?outlet_id=${widget.outletId}"),
       );
       final data = json.decode(response.body);
       if (response.statusCode == 200 && data['status'] == true) {
+        if (!_isMounted || !mounted) return;
         setState(() {
           karyawanList = data['data'] ?? [];
         });
@@ -2245,6 +96,7 @@ class _MutasiRekeningWidgetState extends State<_MutasiRekeningWidget> with Autom
   }
 
   Future<void> fetchMutasiRekening() async {
+    if (!_isMounted || !mounted) return;
     setState(() => isLoading = true);
     
     try {
@@ -2269,9 +121,13 @@ class _MutasiRekeningWidgetState extends State<_MutasiRekeningWidget> with Autom
       }
       
       final response = await http.get(Uri.parse(url));
+      
+      if (!_isMounted || !mounted) return;
+      
       final data = json.decode(response.body);
       
       if (response.statusCode == 200 && data['status'] == true) {
+        if (!_isMounted || !mounted) return;
         setState(() {
           allData = data['data']?['accounts'] ?? [];
           totalDebitAll = double.tryParse(data['data']?['total_semua_debit']?.toString() ?? '0') ?? 0;
@@ -2291,11 +147,13 @@ class _MutasiRekeningWidgetState extends State<_MutasiRekeningWidget> with Autom
     } catch (e) {
       _showSnackBar("Error: $e");
     } finally {
+      if (!_isMounted || !mounted) return;
       setState(() => isLoading = false);
     }
   }
 
   void _previousDate() {
+    if (!_isMounted || !mounted) return;
     setState(() {
       selectedDate = selectedDate.subtract(const Duration(days: 1));
       useCustomRange = false;
@@ -2306,6 +164,7 @@ class _MutasiRekeningWidgetState extends State<_MutasiRekeningWidget> with Autom
   }
 
   void _nextDate() {
+    if (!_isMounted || !mounted) return;
     setState(() {
       selectedDate = selectedDate.add(const Duration(days: 1));
       useCustomRange = false;
@@ -2316,6 +175,7 @@ class _MutasiRekeningWidgetState extends State<_MutasiRekeningWidget> with Autom
   }
 
   void _goToToday() {
+    if (!_isMounted || !mounted) return;
     setState(() {
       selectedDate = DateTime.now();
       useCustomRange = false;
@@ -2333,6 +193,7 @@ class _MutasiRekeningWidgetState extends State<_MutasiRekeningWidget> with Autom
       lastDate: DateTime.now(),
     );
     if (picked != null) {
+      if (!_isMounted || !mounted) return;
       setState(() {
         selectedDate = picked;
         useCustomRange = false;
@@ -2358,6 +219,7 @@ class _MutasiRekeningWidgetState extends State<_MutasiRekeningWidget> with Autom
         lastDate: DateTime.now(),
       );
       if (pickedEnd != null) {
+        if (!_isMounted || !mounted) return;
         setState(() {
           startDate = pickedStart;
           endDate = pickedEnd;
@@ -2369,6 +231,7 @@ class _MutasiRekeningWidgetState extends State<_MutasiRekeningWidget> with Autom
   }
 
   void resetFilters() {
+    if (!_isMounted || !mounted) return;
     setState(() {
       selectedDate = DateTime.now();
       startDate = null;
@@ -2382,6 +245,7 @@ class _MutasiRekeningWidgetState extends State<_MutasiRekeningWidget> with Autom
   }
 
   void _showSnackBar(String message) {
+    if (!_isMounted || !mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
@@ -2455,8 +319,6 @@ class _MutasiRekeningWidgetState extends State<_MutasiRekeningWidget> with Autom
 
   @override
   Widget build(BuildContext context) {
-    super.build(context);
-    
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -3177,12 +1039,303 @@ class _MutasiRekeningWidgetState extends State<_MutasiRekeningWidget> with Autom
   }
 }
 
-// ============ TUTUP KAS SCREEN UTAMA ============
-class _TutupKasScreenState extends State<TutupKasScreen> 
-    with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
-  
+// ============ LOG TRANSAKSI WIDGET ============
+class _LogTransaksiWidget extends StatefulWidget {
+  final int outletId;
+  final int sessionId;
+
+  const _LogTransaksiWidget({
+    required this.outletId,
+    required this.sessionId,
+  });
+
   @override
-  bool get wantKeepAlive => true;
+  State<_LogTransaksiWidget> createState() => _LogTransaksiWidgetState();
+}
+
+class _LogTransaksiWidgetState extends State<_LogTransaksiWidget> {
+  // HAPUS AutomaticKeepAliveClientMixin
+
+  final String baseUrl = "https://barokahsport.com/brilink";
+  
+  List<dynamic> transactions = [];
+  bool isLoading = false;
+  final Color primaryBlue = const Color(0xFF00529C);
+  
+  bool _isMounted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _isMounted = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_isMounted) {
+        fetchTransactions();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _isMounted = false;
+    super.dispose();
+  }
+
+  Future<void> fetchTransactions() async {
+    if (!_isMounted || !mounted) return;
+    
+    setState(() => isLoading = true);
+    try {
+      final response = await http.get(
+        Uri.parse("$baseUrl/get_all_transactions.php?outlet_id=${widget.outletId}"),
+      );
+      
+      if (!_isMounted || !mounted) return;
+      
+      final data = json.decode(response.body);
+      
+      if (response.statusCode == 200 && data['status'] == true) {
+        List<dynamic> allTransactions = data['data'] ?? [];
+        List<dynamic> filtered = allTransactions.where((trx) {
+          return trx['session_id']?.toString() == widget.sessionId.toString();
+        }).toList();
+        
+        if (!_isMounted || !mounted) return;
+        setState(() {
+          transactions = filtered;
+        });
+      }
+    } catch (e) {
+      print("Error fetch transactions: $e");
+    } finally {
+      if (!_isMounted || !mounted) return;
+      setState(() => isLoading = false);
+    }
+  }
+
+  String _formatIdr(double number) {
+    String str = number.toInt().toString();
+    RegExp reg = RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))');
+    return str.replaceAllMapped(reg, (Match match) => '${match[1]}.');
+  }
+
+  String _formatTanggal(String? date) {
+    if (date == null || date.isEmpty) return '-';
+    try {
+      DateTime dt = DateTime.parse(date);
+      return DateFormat('dd/MM/yyyy HH:mm').format(dt);
+    } catch (e) {
+      return date;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: primaryBlue.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  Icons.receipt_long_rounded,
+                  color: primaryBlue,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      "Log Transaksi",
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: Color(0xFF00529C),
+                      ),
+                    ),
+                    Text(
+                      "${transactions.length} Transaksi",
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (!isLoading)
+                IconButton(
+                  icon: Icon(Icons.refresh_rounded, color: primaryBlue, size: 20),
+                  onPressed: fetchTransactions,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  tooltip: "Refresh",
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          if (isLoading)
+            const Expanded(
+              child: Center(
+                child: CircularProgressIndicator(),
+              ),
+            )
+          else if (transactions.isEmpty)
+            Expanded(
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.receipt_long_rounded, size: 48, color: Colors.grey.shade300),
+                    const SizedBox(height: 12),
+                    Text(
+                      "Tidak ada transaksi",
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.grey.shade500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                itemCount: transactions.length,
+                itemBuilder: (context, index) {
+                  var trx = transactions[index];
+                  return _buildTransactionCard(trx);
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTransactionCard(var trx) {
+    String type = trx['trx_type']?.toString() ?? 'Unknown';
+    double amount = double.tryParse(trx['nominal_destination']?.toString() ?? '0') ?? 0;
+    if (amount == 0) {
+      amount = double.tryParse(trx['nominal_source']?.toString() ?? '0') ?? 0;
+    }
+    String tanggal = _formatTanggal(trx['trx_date'] ?? trx['created_at']);
+    String keterangan = trx['description']?.toString() ?? '';
+    String customerName = trx['customer_name']?.toString() ?? '';
+    
+    Color typeColor = Colors.grey.shade700;
+    String typeLower = type.toLowerCase();
+    if (typeLower.contains('setoran')) typeColor = Colors.green;
+    else if (typeLower.contains('tarik')) typeColor = Colors.orange;
+    else if (typeLower.contains('qris')) typeColor = Colors.purple;
+    else if (typeLower.contains('pos')) typeColor = Colors.purple.shade700;
+    else if (typeLower.contains('pengeluaran')) typeColor = Colors.red;
+    else if (typeLower.contains('piutang')) typeColor = Colors.green.shade700;
+    else if (typeLower.contains('hutang')) typeColor = Colors.red.shade700;
+    else if (typeLower.contains('pindah')) typeColor = Colors.teal;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 4,
+            height: 36,
+            decoration: BoxDecoration(
+              color: typeColor,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  type.toUpperCase(),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 11,
+                    color: typeColor,
+                  ),
+                ),
+                if (customerName.isNotEmpty)
+                  Text(
+                    customerName,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                if (keterangan.isNotEmpty && customerName.isEmpty)
+                  Text(
+                    keterangan,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.grey.shade600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                Text(
+                  tanggal,
+                  style: TextStyle(
+                    fontSize: 9,
+                    color: Colors.grey.shade400,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Text(
+            "Rp ${_formatIdr(amount)}",
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 13,
+              color: typeLower.contains('pengeluaran') ? Colors.red : primaryBlue,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============ GANTI SHIFT SCREEN UTAMA ============
+class _GantiShiftScreenState extends State<GantiShiftScreen> 
+    with TickerProviderStateMixin {
+  // HAPUS AutomaticKeepAliveClientMixin
 
   // ============ TAB CONTROLLER ============
   late TabController _tabController;
@@ -3225,28 +1378,36 @@ class _TutupKasScreenState extends State<TutupKasScreen>
   bool isLoadingData = false;
   bool isLoadingOutlets = false;
 
+  String? shiftStart;
+
   final Color primaryBlue = const Color(0xFF00529C);
   final Color primaryOrange = const Color(0xFFF26A25);
   final Color primaryGreen = const Color(0xFF00A86B);
 
   bool isSubmitting = false;
+  bool _isMounted = false;
 
   final _cardBorderRadius = BorderRadius.circular(16);
 
   @override
   void initState() {
     super.initState();
+    _isMounted = true;
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(() {
-      setState(() {
-        _selectedTabIndex = _tabController.index;
-      });
+      if (_isMounted && mounted) {
+        setState(() {
+          _selectedTabIndex = _tabController.index;
+        });
+      }
     });
+    _loadShiftStart();
     loadOutletSession();
   }
 
   @override
   void dispose() {
+    _isMounted = false;
     _tabController.dispose();
     cashLaciPhysicalController.dispose();
     cashLaciKeteranganController.dispose();
@@ -3259,12 +1420,26 @@ class _TutupKasScreenState extends State<TutupKasScreen>
     super.dispose();
   }
 
-  Future<void> loadOutletSession() async {
+  Future<void> _loadShiftStart() async {
+    if (!_isMounted || !mounted) return;
     final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      myOutletId = prefs.getInt('outlet_id') ?? prefs.getInt('saved_outlet_id') ?? 1;
-      selectedDate = DateTime.now();
-    });
+    String? savedShiftStart = prefs.getString('shift_start');
+    if (_isMounted && mounted) {
+      setState(() {
+        shiftStart = savedShiftStart ?? DateTime.now().toIso8601String();
+      });
+    }
+  }
+
+  Future<void> loadOutletSession() async {
+    if (!_isMounted || !mounted) return;
+    final prefs = await SharedPreferences.getInstance();
+    if (_isMounted && mounted) {
+      setState(() {
+        myOutletId = prefs.getInt('outlet_id') ?? prefs.getInt('saved_outlet_id') ?? 1;
+        selectedDate = DateTime.now();
+      });
+    }
 
     await fetchPusatOutlet();
     await fetchLoggedInKaryawan();
@@ -3276,16 +1451,19 @@ class _TutupKasScreenState extends State<TutupKasScreen>
   }
 
   Future<void> fetchLoggedInKaryawan() async {
+    if (!_isMounted || !mounted) return;
     try {
       final prefs = await SharedPreferences.getInstance();
       int? karyawanId = prefs.getInt('karyawan_id');
       String? karyawanName = prefs.getString('karyawan_nama');
       
       if (karyawanId != null && karyawanId > 0) {
-        setState(() {
-          loggedInKaryawanId = karyawanId;
-          loggedInKaryawanName = karyawanName ?? 'Karyawan';
-        });
+        if (_isMounted && mounted) {
+          setState(() {
+            loggedInKaryawanId = karyawanId;
+            loggedInKaryawanName = karyawanName ?? 'Karyawan';
+          });
+        }
       } else {
         final response = await http.get(
           Uri.parse("$baseUrl/get_karyawan.php?outlet_id=$myOutletId&limit=1"),
@@ -3294,10 +1472,12 @@ class _TutupKasScreenState extends State<TutupKasScreen>
         if (response.statusCode == 200 && data['status'] == true) {
           List<dynamic> karyawan = data['data'] ?? [];
           if (karyawan.isNotEmpty) {
-            setState(() {
-              loggedInKaryawanId = int.parse(karyawan.first['id'].toString());
-              loggedInKaryawanName = karyawan.first['nama_karyawan'] ?? 'Karyawan';
-            });
+            if (_isMounted && mounted) {
+              setState(() {
+                loggedInKaryawanId = int.parse(karyawan.first['id'].toString());
+                loggedInKaryawanName = karyawan.first['nama_karyawan'] ?? 'Karyawan';
+              });
+            }
           }
         }
       }
@@ -3307,6 +1487,7 @@ class _TutupKasScreenState extends State<TutupKasScreen>
   }
 
   Future<void> fetchPusatOutlet() async {
+    if (!_isMounted || !mounted) return;
     try {
       final response = await http.get(
         Uri.parse("$baseUrl/get_outlets.php"),
@@ -3317,8 +1498,12 @@ class _TutupKasScreenState extends State<TutupKasScreen>
         List<dynamic> outlets = data['data'] ?? [];
         if (outlets.isNotEmpty) {
           outlets.sort((a, b) => (a['id'] as int).compareTo(b['id'] as int));
-          pusatOutletId = outlets.first['id'] as int;
-          isPusatOutlet = (myOutletId == pusatOutletId);
+          if (_isMounted && mounted) {
+            setState(() {
+              pusatOutletId = outlets.first['id'] as int;
+              isPusatOutlet = (myOutletId == pusatOutletId);
+            });
+          }
         }
       }
     } catch (e) {
@@ -3327,7 +1512,10 @@ class _TutupKasScreenState extends State<TutupKasScreen>
   }
 
   Future<void> fetchOutlets() async {
-    setState(() => isLoadingOutlets = true);
+    if (!_isMounted || !mounted) return;
+    if (_isMounted && mounted) {
+      setState(() => isLoadingOutlets = true);
+    }
     try {
       final response = await http.get(
         Uri.parse("$baseUrl/get_outlets.php"),
@@ -3335,18 +1523,23 @@ class _TutupKasScreenState extends State<TutupKasScreen>
       final data = json.decode(response.body);
 
       if (response.statusCode == 200 && data['status'] == true) {
-        setState(() {
-          outletList = data['data'] ?? [];
-        });
+        if (_isMounted && mounted) {
+          setState(() {
+            outletList = data['data'] ?? [];
+          });
+        }
       }
     } catch (e) {
       print("Gagal mengambil data outlet: $e");
     } finally {
-      setState(() => isLoadingOutlets = false);
+      if (_isMounted && mounted) {
+        setState(() => isLoadingOutlets = false);
+      }
     }
   }
 
   Future<void> fetchKaryawan() async {
+    if (!_isMounted || !mounted) return;
     try {
       final response = await http.get(
         Uri.parse("$baseUrl/get_karyawan.php?outlet_id=$myOutletId"),
@@ -3354,9 +1547,11 @@ class _TutupKasScreenState extends State<TutupKasScreen>
       final data = json.decode(response.body);
       
       if (response.statusCode == 200 && data['status'] == true) {
-        setState(() {
-          karyawanList = data['data'] ?? [];
-        });
+        if (_isMounted && mounted) {
+          setState(() {
+            karyawanList = data['data'] ?? [];
+          });
+        }
       }
     } catch (e) {
       print("Gagal mengambil data karyawan: $e");
@@ -3364,6 +1559,7 @@ class _TutupKasScreenState extends State<TutupKasScreen>
   }
 
   Future<void> fetchOpeningBalances() async {
+    if (!_isMounted || !mounted) return;
     try {
       final response = await http.get(
         Uri.parse("$baseUrl/get_opening_balances.php?outlet_id=$myOutletId&session_id=${widget.sessionId}"),
@@ -3380,9 +1576,11 @@ class _TutupKasScreenState extends State<TutupKasScreen>
           tempMap[accountId] = amount;
         }
         
-        setState(() {
-          openingBalancesMap = tempMap;
-        });
+        if (_isMounted && mounted) {
+          setState(() {
+            openingBalancesMap = tempMap;
+          });
+        }
       }
     } catch (e) {
       print("Gagal mengambil opening balances: $e");
@@ -3390,10 +1588,13 @@ class _TutupKasScreenState extends State<TutupKasScreen>
   }
 
   Future<void> fetchActiveBalances() async {
-    setState(() => isLoadingData = true);
+    if (!_isMounted || !mounted) return;
+    if (_isMounted && mounted) {
+      setState(() => isLoadingData = true);
+    }
     try {
       final response = await http.get(
-        Uri.parse("$baseUrl/get_balances_for_closing.php?outlet_id=$myOutletId"),
+        Uri.parse("$baseUrl/get_shift_balances.php?outlet_id=$myOutletId"),
       );
       final data = json.decode(response.body);
 
@@ -3406,19 +1607,21 @@ class _TutupKasScreenState extends State<TutupKasScreen>
         
         List<dynamic> accounts = data['data'] ?? [];
 
-        setState(() {
-          cashLaciSystemAmount = laciCurrent;
-          cashOpening = opening;
-          cashLaciPhysicalController.text = "0"; 
-          cashLaciKeteranganController.text = "";
-          activeAccounts = accounts;
-          
-          for (var acc in activeAccounts) {
-            int accId = int.parse(acc['id'].toString());
-            closingControllers[accId] = TextEditingController(text: "0");
-            keteranganControllers[accId] = TextEditingController(text: "");
-          }
-        });
+        if (_isMounted && mounted) {
+          setState(() {
+            cashLaciSystemAmount = laciCurrent;
+            cashOpening = opening;
+            cashLaciPhysicalController.text = "0"; 
+            cashLaciKeteranganController.text = "";
+            activeAccounts = accounts;
+            
+            for (var acc in activeAccounts) {
+              int accId = int.parse(acc['id'].toString());
+              closingControllers[accId] = TextEditingController(text: "0");
+              keteranganControllers[accId] = TextEditingController(text: "");
+            }
+          });
+        }
         
       } else {
         showSnackBar(data['message'] ?? "Gagal memuat saldo");
@@ -3426,11 +1629,14 @@ class _TutupKasScreenState extends State<TutupKasScreen>
     } catch (e) {
       showSnackBar("Gagal memuat saldo berjalan sesi ini: $e");
     } finally {
-      setState(() => isLoadingData = false);
+      if (_isMounted && mounted) {
+        setState(() => isLoadingData = false);
+      }
     }
   }
 
   Future<void> fetchAllTransactions() async {
+    if (!_isMounted || !mounted) return;
     try {
       final response = await http.get(
         Uri.parse("$baseUrl/get_all_transactions.php?outlet_id=$myOutletId"),
@@ -3442,9 +1648,11 @@ class _TutupKasScreenState extends State<TutupKasScreen>
         List<dynamic> transactionsForThisSession = allTransactions.where((trx) {
           return trx['session_id']?.toString() == widget.sessionId.toString();
         }).toList();
-        setState(() {
-          sessionTransactions = transactionsForThisSession;
-        });
+        if (_isMounted && mounted) {
+          setState(() {
+            sessionTransactions = transactionsForThisSession;
+          });
+        }
       }
     } catch (e) {
       print("Error mengambil semua transaksi: $e");
@@ -3789,7 +1997,9 @@ class _TutupKasScreenState extends State<TutupKasScreen>
                         ),
                         onPressed: () {
                           controller.text = tempController.text;
-                          setState(() {});
+                          if (_isMounted && mounted) {
+                            setState(() {});
+                          }
                           Navigator.pop(context);
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
@@ -3894,7 +2104,7 @@ class _TutupKasScreenState extends State<TutupKasScreen>
                           Expanded(
                             child: Text(
                               'Terdapat nilai negatif pada salah satu kolom fisik.\n'
-                              'Apakah Anda yakin ingin melanjutkan penutupan kas?',
+                              'Apakah Anda yakin ingin melanjutkan pergantian shift?',
                               style: TextStyle(
                                 fontSize: 14,
                                 color: Colors.orange.shade800,
@@ -3974,7 +2184,10 @@ class _TutupKasScreenState extends State<TutupKasScreen>
     );
   }
 
-  Future<void> submitCloseSession() async {
+  // ============ SUBMIT GANTI SHIFT + LOGOUT ============
+  Future<void> submitGantiShift() async {
+    print("▶️ [submitGantiShift] Start");
+    
     if (cashLaciPhysicalController.text.isEmpty || 
         cashLaciPhysicalController.text == '0' || 
         cashLaciPhysicalController.text == 'Rp 0') {
@@ -4008,11 +2221,14 @@ class _TutupKasScreenState extends State<TutupKasScreen>
     if (_hasNegativeData()) {
       bool? confirm = await _showNegativeDataConfirmation();
       if (confirm != true) {
+        print("▶️ [submitGantiShift] User canceled negative data");
         return;
       }
     }
 
-    setState(() => isSubmitting = true);
+    if (mounted) {
+      setState(() => isSubmitting = true);
+    }
 
     Map<int, double> amountPerAkun = {};
     Map<int, double> selisihPerAkun = {};
@@ -4040,21 +2256,38 @@ class _TutupKasScreenState extends State<TutupKasScreen>
       double selisih = selisihPerAkun[accountId] ?? 0;
       String keterangan = keteranganControllers[accountId]?.text ?? '';
       
+      String accountName = 'Unknown';
+      String category = '';
+      String subCategory = '';
+      for (var acc in activeAccounts) {
+        if (int.parse(acc['id'].toString()) == accountId) {
+          accountName = acc['name']?.toString() ?? 'Unknown';
+          category = acc['category']?.toString() ?? '';
+          subCategory = acc['sub_category']?.toString() ?? '';
+          break;
+        }
+      }
+      
       balancesPayload.add({
         "account_id": accountId,
         "amount": amount,
         "selisih_e_wallet": selisih,
-        "keterangan": keterangan
+        "keterangan": keterangan,
+        "account_name": accountName,
+        "category": category,
+        "sub_category": subCategory,
       });
     });
 
     String cleanCashLaci = cashLaciPhysicalController.text.replaceAll('.', '');
     cleanCashLaci = cleanCashLaci.replaceAll('Rp ', '');
     String cashKeterangan = cashLaciKeteranganController.text;
+    String shiftStartToSend = shiftStart ?? DateTime.now().toIso8601String();
 
     try {
+      print("▶️ [submitGantiShift] Sending request to server...");
       final response = await http.post(
-        Uri.parse("$baseUrl/save_closing_balances.php"),
+        Uri.parse("$baseUrl/save_shift_balances.php"),
         headers: {
           "Content-Type": "application/json",
         },
@@ -4064,51 +2297,113 @@ class _TutupKasScreenState extends State<TutupKasScreen>
           "karyawan_id": loggedInKaryawanId ?? 0,
           "cash_closing_total": double.parse(cleanCashLaci),
           "cash_keterangan": cashKeterangan,
+          "shift_start": shiftStartToSend,
           "balances": balancesPayload,
         }),
       );
 
+      print("▶️ [submitGantiShift] Response received: ${response.statusCode}");
+      print("▶️ [submitGantiShift] Response body: ${response.body}");
+
       final data = json.decode(response.body);
+      print("▶️ [submitGantiShift] Parsed data: status=${data['status']}, should_logout=${data['should_logout']}");
       
-      if (response.statusCode == 200 && data['status'] == true) {
-        // Tampilkan snackbar sukses
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("✅ ${data['message'] ?? 'Sesi Kasir Berhasil Ditutup!'} Logout..."),
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            margin: const EdgeInsets.all(16),
-            backgroundColor: primaryGreen,
-            duration: const Duration(seconds: 1),
-          ),
-        );
-
-        // ============ KOSONGKAN SHARED PREFERENCES ============
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.clear();
-
-        // ============ TUNGGU SEBENTAR AGAR SNACKBAR TERLIHAT ============
-        await Future.delayed(const Duration(milliseconds: 500));
-
-        if (!mounted) return;
+      // Check if response is success (status == true OR status == "closed" OR should_logout == true)
+      bool isSuccess = response.statusCode == 200 && 
+        (data['status'] == true || 
+         data['status'] == 'closed' || 
+         data['should_logout'] == true);
+      
+      if (isSuccess) {
+        print("✅ [submitGantiShift] Server response success");
         
-        // ============ NAVIGASI KE LOGIN SCREEN ============
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (context) => const LoginScreen()),
-          (route) => false,
-        );
+        // ============ LANGSUNG LOGOUT ============
+        try {
+          print("▶️ [submitGantiShift] Clearing SharedPreferences...");
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.clear();
+          print("✅ [submitGantiShift] SharedPreferences cleared");
+
+          print("▶️ [submitGantiShift] Showing success message...");
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text("✅ ${data['message'] ?? 'Shift berhasil diganti!'} Logout..."),
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                margin: const EdgeInsets.all(16),
+                backgroundColor: primaryGreen,
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          }
+
+          print("▶️ [submitGantiShift] Resetting isSubmitting and _isMounted...");
+          if (mounted) {
+            setState(() {
+              isSubmitting = false;
+            });
+          }
+          _isMounted = false;
+
+          print("▶️ [submitGantiShift] Starting navigation...");
+          // Delay sebentar untuk memastikan state sudah di-reset
+          await Future.delayed(const Duration(milliseconds: 50));
+
+          print("▶️ [submitGantiShift] About to navigate to LoginScreen. mounted=$mounted, context.mounted=${context.mounted}");
+          
+          if (mounted && context.mounted) {
+            try {
+              print("▶️ [submitGantiShift] Executing Navigator.pushAndRemoveUntil...");
+              await Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (context) => const LoginScreen()),
+                (route) => false,
+              );
+              print("✅ [submitGantiShift] Navigation completed successfully!");
+            } catch (navError) {
+              print("❌ [submitGantiShift] Navigation error: $navError");
+              print("❌ [submitGantiShift] Stack trace: ${StackTrace.current}");
+            }
+          } else {
+            print("⚠️ [submitGantiShift] Widget not mounted, trying forced navigation...");
+            try {
+              // Fallback: Coba navigate meski tidak mounted
+              await Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (context) => const LoginScreen()),
+                (route) => false,
+              );
+              print("✅ [submitGantiShift] Forced navigation successful!");
+            } catch (e) {
+              print("❌ [submitGantiShift] Forced navigation failed: $e");
+            }
+          }
+        } catch (logoutError) {
+          print("❌ [submitGantiShift] Logout error: $logoutError");
+          print("❌ [submitGantiShift] Stack trace: ${StackTrace.current}");
+          if (mounted) {
+            setState(() => isSubmitting = false);
+            showSnackBar("⚠️ Error logout: $logoutError");
+          }
+        }
       } else {
-        showSnackBar(data['message'] ?? "Gagal memproses penutupan kas");
-        setState(() => isSubmitting = false);
+        print("❌ [submitGantiShift] Server response failed: ${data['message']}");
+        showSnackBar(data['message'] ?? "Gagal memproses pergantian shift");
+        if (mounted) {
+          setState(() => isSubmitting = false);
+        }
       }
     } catch (e) {
+      print("❌ [submitGantiShift] Exception caught: $e");
+      print("❌ [submitGantiShift] Stack trace: ${StackTrace.current}");
       showSnackBar("Terjadi kesalahan koneksi database: $e");
-      setState(() => isSubmitting = false);
+      if (mounted) {
+        setState(() => isSubmitting = false);
+      }
     }
   }
 
   void showSnackBar(String message) {
+    if (!_isMounted || !mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message, style: const TextStyle(fontSize: 14)),
@@ -4122,12 +2417,6 @@ class _TutupKasScreenState extends State<TutupKasScreen>
   }
 
   String _formatIdr(double number) {
-    String str = number.toInt().toString();
-    RegExp reg = RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))');
-    return str.replaceAllMapped(reg, (Match match) => '${match[1]}.');
-  }
-
-  String nestedFormatIdr(double number) {
     String str = number.toInt().toString();
     RegExp reg = RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))');
     return str.replaceAllMapped(reg, (Match match) => '${match[1]}.');
@@ -4299,8 +2588,6 @@ class _TutupKasScreenState extends State<TutupKasScreen>
 
   @override
   Widget build(BuildContext context) {
-    super.build(context);
-    
     bool isDataComplete = _isAllDataFilled();
     bool hasNegative = _hasNegativeData();
     List<dynamic> visibleAccounts = activeAccounts.where((acc) => _isAccountVisible(acc)).toList();
@@ -4316,11 +2603,11 @@ class _TutupKasScreenState extends State<TutupKasScreen>
                 color: Colors.white.withOpacity(0.15),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: const Icon(Icons.account_balance_wallet_rounded, size: 20),
+              child: const Icon(Icons.swap_horiz_rounded, size: 20),
             ),
             const SizedBox(width: 10),
             const Text(
-              "Tutup Kas",
+              "Ganti Shift",
               style: TextStyle(
                 fontWeight: FontWeight.w700,
                 fontSize: 18,
@@ -4415,7 +2702,7 @@ class _TutupKasScreenState extends State<TutupKasScreen>
                                         borderRadius: BorderRadius.circular(10),
                                       ),
                                       child: const Icon(
-                                        Icons.storefront_rounded,
+                                        Icons.swap_horiz_rounded,
                                         color: Colors.white,
                                         size: 22,
                                       ),
@@ -4426,10 +2713,19 @@ class _TutupKasScreenState extends State<TutupKasScreen>
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
                                           Text(
-                                            "Input hasil opname fisik untuk penutupan kas",
+                                            "Input hasil opname fisik untuk pergantian shift",
                                             style: TextStyle(
                                               color: Colors.white.withOpacity(0.8),
                                               fontSize: 12,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            "Shift: ${loggedInKaryawanName ?? 'Karyawan'}",
+                                            style: TextStyle(
+                                              color: Colors.white.withOpacity(0.9),
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.bold,
                                             ),
                                           ),
                                         ],
@@ -4741,7 +3037,9 @@ class _TutupKasScreenState extends State<TutupKasScreen>
                                                         fillColor: _isCashNegative() ? Colors.red.shade50 : Colors.grey.shade50,
                                                       ),
                                                       onChanged: (value) {
-                                                        setState(() {});
+                                                        if (_isMounted && mounted) {
+                                                          setState(() {});
+                                                        }
                                                       },
                                                     ),
                                                   ),
@@ -4959,7 +3257,9 @@ class _TutupKasScreenState extends State<TutupKasScreen>
                                                             fillColor: isNegative ? Colors.red.shade50 : Colors.grey.shade50,
                                                           ),
                                                           onChanged: (value) {
-                                                            setState(() {});
+                                                            if (_isMounted && mounted) {
+                                                              setState(() {});
+                                                            }
                                                           },
                                                         ),
                                                       ),
@@ -5099,7 +3399,7 @@ class _TutupKasScreenState extends State<TutupKasScreen>
                                       const SizedBox(width: 10),
                                       Expanded(
                                         child: Text(
-                                          "Harap isi semua nilai fisik (Uang Kas dan semua akun) sebelum menutup sesi",
+                                          "Harap isi semua nilai fisik (Uang Kas dan semua akun) sebelum mengganti shift",
                                           style: TextStyle(
                                             color: Colors.orange.shade700,
                                             fontSize: 12,
@@ -5203,7 +3503,7 @@ class _TutupKasScreenState extends State<TutupKasScreen>
                                               size: 22,
                                             )
                                           : const Icon(
-                                              Icons.cloud_upload_rounded,
+                                              Icons.swap_horiz_rounded,
                                               color: Colors.white,
                                               size: 20,
                                             ),
@@ -5227,7 +3527,7 @@ class _TutupKasScreenState extends State<TutupKasScreen>
                                               ),
                                             )
                                           : const Text(
-                                              "AMANKAN & TUTUP SESI KASIR",
+                                              "GANTI SHIFT & LOGOUT",
                                               style: TextStyle(
                                                 color: Colors.white,
                                                 fontWeight: FontWeight.bold,
@@ -5235,7 +3535,7 @@ class _TutupKasScreenState extends State<TutupKasScreen>
                                                 letterSpacing: 1,
                                               ),
                                             ),
-                                  onPressed: (isSubmitting || !isDataComplete) ? null : submitCloseSession,
+                                  onPressed: (isSubmitting || !isDataComplete) ? null : submitGantiShift,
                                 ),
                               ),
                             ],

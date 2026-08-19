@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:kasir_brilink/screens/GantiShiftScreen.dart';
 import 'package:kasir_brilink/screens/laporan_mutasi_rekening_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
@@ -121,15 +122,102 @@ class _SidebarState extends State<Sidebar> {
   }
   // ============================================================
 
+  // ============ LOGOUT BIASA ============
   Future<void> actionLogout() async {
+    // Tampilkan dialog konfirmasi logout
+    bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.red.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.logout_rounded, color: Colors.red, size: 24),
+            ),
+            const SizedBox(width: 12),
+            const Text(
+              "Konfirmasi Logout",
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "Apakah Anda yakin ingin logout?",
+              style: TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline_rounded, color: Colors.orange.shade700, size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "Shift yang sedang aktif akan tetap aktif. Anda bisa login kembali nanti.",
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.orange.shade700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(
+              "BATAL",
+              style: TextStyle(color: Colors.grey.shade700, fontWeight: FontWeight.w600),
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              elevation: 0,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text(
+              "LOGOUT",
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    // Logout biasa - hanya clear SharedPreferences
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
+    
     if (!mounted) return;
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (context) => const LoginScreen()),
     );
   }
+  // =====================================
 
   Widget _buildStatusChip() {
     String statusText;
@@ -214,9 +302,7 @@ class _SidebarState extends State<Sidebar> {
               ),
             ),
           ),
-          // ============ BADGE NOTIFIKASI BULAT KECIL ============
           if (trailing != null) trailing,
-          // =====================================================
         ],
       ),
       subtitle: subtitle != null
@@ -257,11 +343,9 @@ class _SidebarState extends State<Sidebar> {
       showProdukMenu = true;
     }
 
-    // ============ TENTUKAN NAMA MENU KIRIM/TERIMA PRODUK ============
     String kirimProdukTitle = tipeOutlet == 'pusat' ? 'Kirim Produk' : 'Terima Produk';
     IconData kirimProdukIcon = tipeOutlet == 'pusat' ? Icons.local_shipping_rounded : Icons.inbox_rounded;
     
-    // ============ BADGE NOTIFIKASI BULAT KECIL ============
     Widget? badgeWidget;
     if (tipeOutlet == 'cabang' && pendingKirimCount > 0) {
       badgeWidget = Container(
@@ -283,7 +367,6 @@ class _SidebarState extends State<Sidebar> {
         ),
       );
     }
-    // ============================================================
 
     return Drawer(
       child: Container(
@@ -517,7 +600,6 @@ class _SidebarState extends State<Sidebar> {
 
                   const Divider(height: 4, thickness: 1, indent: 16, endIndent: 16),
 
-                  // ============ MENU DATA PRODUK ============
                   if (showProdukMenu) ...[
                     _buildMenuItem(
                       icon: Icons.inventory_2_rounded,
@@ -539,16 +621,13 @@ class _SidebarState extends State<Sidebar> {
                       onTap: () {},
                     ),
                   ],
-                  // ===========================================
 
-                  // ============ MENU KIRIM/TERIMA PRODUK ============
                   _buildMenuItem(
                     icon: kirimProdukIcon,
                     title: kirimProdukTitle,
                     iconColor: tipeOutlet == 'pusat' ? Colors.brown.shade700 : Colors.green.shade700,
                     onTap: () {
                       Navigator.pop(context);
-                      // Reset notifikasi setelah menu dibuka
                       if (tipeOutlet == 'cabang') {
                         setState(() {
                           pendingKirimCount = 0;
@@ -560,15 +639,13 @@ class _SidebarState extends State<Sidebar> {
                           builder: (context) => const KirimProdukScreen(),
                         ),
                       ).then((_) {
-                        // Refresh notifikasi setelah kembali
                         if (tipeOutlet == 'cabang') {
                           cekNotifikasiProdukMasuk();
                         }
                       });
                     },
-                    trailing: badgeWidget, // Badge notifikasi bulat kecil
+                    trailing: badgeWidget,
                   ),
-                  // =================================================
 
                   _buildMenuItem(
                     icon: Icons.history_rounded,
@@ -589,11 +666,48 @@ class _SidebarState extends State<Sidebar> {
                   const Divider(height: 4, thickness: 1, indent: 16, endIndent: 16),
 
                   _buildMenuItem(
+                    icon: Icons.swap_horiz_rounded,
+                    title: "Ganti Shift",
+                    iconColor: Colors.orange.shade700,
+                    isEnabled: widget.sessionStatus == "open",
+                    onTap: () async {
+                      Navigator.pop(context);
+                      if (widget.sessionId == null || widget.sessionId == 0) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: const Text("Sesi belum aktif"),
+                            backgroundColor: primaryOrange,
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                        return;
+                      }
+                      final result = await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => GantiShiftScreen(
+                            sessionId: widget.sessionId!, karyawanName: '',
+                          ),
+                        ),
+                      );
+                      if (result == true) {
+                        if (widget.onRefresh != null) {
+                          widget.onRefresh!();
+                        }
+                      }
+                    },
+                  ),
+
+                  const Divider(height: 4, thickness: 1, indent: 16, endIndent: 16),
+
+                  // ============ LOGOUT BIASA ============
+                  _buildMenuItem(
                     icon: Icons.logout_rounded,
                     title: "Logout",
                     iconColor: Colors.red.shade700,
                     onTap: actionLogout,
                   ),
+                  // =======================================
                 ],
               ),
             ),
